@@ -1,0 +1,23 @@
+{
+  "doc_id": "ca1e0b34d1195682da78f3c3f0f1514ea86da5fe81d6a1355bd40b41dfc99f8f",
+  "counts_pass1": {
+    "EMAIL": 0,
+    "PHONE": 5,
+    "IP": 0,
+    "MAC": 0,
+    "LOGIN": 0,
+    "URL_CRED": 0,
+    "SECRET": 0,
+    "PASSWORD": 0
+  },
+  "counts_pass2": {
+    "EMAIL": 0,
+    "PHONE": 0,
+    "IP": 0,
+    "MAC": 0,
+    "LOGIN": 0,
+    "URL_CRED": 0,
+    "SECRET": 0,
+    "PASSWORD": 0
+  }
+}

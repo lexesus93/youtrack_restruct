@@ -1,0 +1,73 @@
+io:
+  input_glob: "input/**/*.txt"
+  output_dir: "output/md"
+  reports_dir: "reports"
+  state_dir: "state"
+
+formatting:
+  max_line_length: 160
+  fence_logs: true
+  log_block_max_lines: 5000
+  unwrap_broken_lines: true
+
+cleaning:
+  remove_templates:
+    - "(?is)-----\\s*Original Message\\s*-----.*$"
+    - "(?im)^\\s*Отправлено с iPhone.*$"
+    - "(?im)^\\s*С уважением,.*$"
+  quote_normalization: true
+  list_normalization: true
+
+metadata:
+  extractors: [issue_id, service, component, env, version, error_code, links, timestamps]
+
+filtering:
+  users_to_filter: []  # пример: [DevOps_Service, bot_ci]
+
+pii:
+  enabled: true
+  ruleset_version: v1.0.0
+  entities: [EMAIL, PHONE, PERSON, IP, MAC, LOGIN, SECRET]
+  whitelists: []
+
+secrets:
+  detect_secrets:
+    enabled: true
+    entropy_limit: 4.5
+    allowlist_patterns: []
+
+dedup:
+  policy: drop
+  simhash_threshold_bits: 4
+  minhash_jaccard_threshold: 0.9
+  n_grams: 5
+
+template:
+  sections_ru:
+    - "Резюме"
+    - "Контекст"
+    - "Шаги воспроизведения"
+    - "Ожидалось vs Фактически"
+    - "Логи"
+    - "Причина"
+    - "Исправление / Обходной путь"
+    - "Ссылки"
+  title_strategy: first_nonempty_line
+
+llm:
+  enabled: true
+  priority: ollama
+  system_prompt_path: "config/prompts/guardrails.md"
+  user_prompt_path: "config/prompts/rewrite.md"
+  max_tokens: 2048
+  temperature: 0.2
+  top_p: 0.9
+
+validation:
+  require_fields: [source, document_id, title, language, has_pii]
+  forbid_raw_html: true
+  pii_leakage_forbidden: true
+
+output:
+  front_matter: false
+

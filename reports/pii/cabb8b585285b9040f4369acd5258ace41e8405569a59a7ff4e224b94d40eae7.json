@@ -1,0 +1,23 @@
+{
+  "doc_id": "cabb8b585285b9040f4369acd5258ace41e8405569a59a7ff4e224b94d40eae7",
+  "counts_pass1": {
+    "EMAIL": 10,
+    "PHONE": 8,
+    "IP": 0,
+    "MAC": 0,
+    "LOGIN": 0,
+    "URL_CRED": 0,
+    "SECRET": 0,
+    "PASSWORD": 0
+  },
+  "counts_pass2": {
+    "EMAIL": 0,
+    "PHONE": 0,
+    "IP": 0,
+    "MAC": 0,
+    "LOGIN": 0,
+    "URL_CRED": 0,
+    "SECRET": 0,
+    "PASSWORD": 0
+  }
+}
