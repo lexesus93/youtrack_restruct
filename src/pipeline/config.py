@@ -20,6 +20,12 @@ def load_pipeline_config(path: Path) -> Dict[str, Any]:
         "Логи", "Причина", "Исправление / Обходной путь", "Ссылки"
     ]})
     data.setdefault("llm", {"enabled": False})
+    # Секция для обработки изображений (vision)
+    data.setdefault("images", {
+        "enabled": True,
+        # Модель vision для OpenRouter; может быть переопределена переменными окружения
+        "vision_model": "qwen/qwen2.5-vl-72b-instruct:free",
+    })
     data.setdefault("validation", {})
     return data
 

@@ -13,6 +13,7 @@ from .anonymize import anonymize_text
 ## dedup отключён
 from .markdown import render_front_matter, render_markdown, FrontMatter, format_markdown
 from .llm import postprocess_with_llm
+from .images import enrich_text_with_image_explanations
 from .metadata import extract_metadata, metadata_section_ru
 from .anonymize import detect_residual_pii
 
@@ -89,6 +90,20 @@ def process_directory(
         users_to_filter = (cfg.get("filtering", {}) or {}).get("users_to_filter", [])
         if users_to_filter:
             text = filter_user_comments(text, users_to_filter)
+        # Обогащение текстов пояснениями к изображениям
+        if (cfg.get("images", {}) or {}).get("enabled", False):
+            if progress_cb:
+                progress_cb({"event": "stage", "file": str(path), "stage": "images"})
+            if control:
+                if getattr(control, "should_stop", lambda: False)():
+                    break
+                if hasattr(control, "wait_if_paused"):
+                    control.wait_if_paused()
+            try:
+                text = enrich_text_with_image_explanations(text, path, cfg)
+            except Exception as e:
+                if progress_cb:
+                    progress_cb({"event": "warn", "file": str(path), "stage": "images", "message": str(e)})
         # Обезличивание (проход 1)
         if progress_cb:
             progress_cb({"event": "stage", "file": str(path), "stage": "anonymize_pass1"})
