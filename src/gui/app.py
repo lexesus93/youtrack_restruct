@@ -4,18 +4,20 @@ from typing import Optional
 
 from dotenv import load_dotenv
 import os
-from PySide6.QtCore import Qt, QThread, Signal
+import re
+from PySide6.QtCore import Qt, QThread, Signal, QUrl
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QLineEdit, QTextEdit, QCheckBox, QProgressBar, QListWidget,
-    QTabWidget, QSplitter, QDialog, QDialogButtonBox
+    QListWidgetItem, QTabWidget, QSplitter, QDialog, QDialogButtonBox
 )
-from PySide6.QtGui import QTextOption
+from PySide6.QtGui import QTextOption, QDesktopServices, QColor, QTextCursor, QTextCharFormat
 from markdown_it import MarkdownIt
 
 from src.pipeline.config import load_pipeline_config
 from src.pipeline.run import process_directory
 from src.pipeline.llm import check_llm_ready
+from pathlib import Path
 
 
 class Worker(QThread):
@@ -63,6 +65,7 @@ class MainWindow(QWidget):
         self._build_ui()
         self.worker = None
         self._items_by_input = {}
+        self._image_logs: dict = {}
 
     def _build_ui(self):
         layout = QVBoxLayout(self)
@@ -95,12 +98,15 @@ class MainWindow(QWidget):
         cfg_row.addWidget(self.llm_checkbox)
         layout.addLayout(cfg_row)
 
-        # Кнопка управления промптом (модальное окно)
+        # Кнопка управления промптом (модальное окно) и открытие отчётов
         prompt_row = QHBoxLayout()
         self.prompt_btn = QPushButton("Промпт…")
         self.prompt_btn.clicked.connect(self._open_prompt_dialog)
-        prompt_row.addStretch(1)
+        self.open_reports_btn = QPushButton("Открыть папку отчётов")
+        self.open_reports_btn.clicked.connect(self._open_reports)
         prompt_row.addWidget(self.prompt_btn)
+        prompt_row.addWidget(self.open_reports_btn)
+        prompt_row.addStretch(1)
         layout.addLayout(prompt_row)
         self._custom_prompt_text: str = ""
 
@@ -123,6 +129,9 @@ class MainWindow(QWidget):
         self.out_view.setMinimumHeight(300)
         self.tabs.addTab(self.src_view, "Исходник")
         self.tabs.addTab(self.out_view, "Результат")
+        # Вкладка логов изображений
+        self.images_log_view = QTextEdit(); self.images_log_view.setReadOnly(True); self.images_log_view.setWordWrapMode(QTextOption.NoWrap)
+        self.tabs.addTab(self.images_log_view, "Логи изображений")
         # Переключатель режимов предпросмотра (Текст/Markdown)
         mode_row = QHBoxLayout()
         self.mode_text_btn = QPushButton("Текст"); self.mode_text_btn.setCheckable(True); self.mode_text_btn.setChecked(True)
@@ -249,8 +258,6 @@ class MainWindow(QWidget):
             self.progress.setValue(int((idx - 1) / max(total, 1) * 100))
             self.status_lbl.setText(f"Файл {idx}/{total}: {evt.get('file')}")
             # Добавляем файл в очередь сразу
-            from PySide6.QtWidgets import QListWidgetItem
-            from PySide6.QtCore import Qt
             in_path = evt.get('file')
             if in_path and in_path not in self._items_by_input:
                 label = f"{Path(in_path).name}"
@@ -263,6 +270,10 @@ class MainWindow(QWidget):
                     self._list_connected = True
         elif evt.get("event") == "stage":
             self.status_lbl.setText(f"{evt.get('file')} — {evt.get('stage')}")
+            # Обновляем лог при стадии images: пытаемся прочитать отчёт по текущему doc_id, если он уже записан
+            if evt.get("stage") == "write":
+                # На стадии write doc_id уже вычислен, отчёт записывается позже; отрисуем логи при завершении файла
+                pass
         elif evt.get("event") == "file_end":
             idx = evt.get("index")
             total = evt.get("total") or max(1, self.file_list.count())
@@ -270,16 +281,40 @@ class MainWindow(QWidget):
                 self.progress.setValue(int(idx / total * 100))
             self.status_lbl.setText(f"Готов: {evt.get('file')}")
             # Обновляем запись очереди, добавляя путь результата
-            from PySide6.QtCore import Qt
             in_path = evt.get('file')
             out_path = evt.get('output_path')
             item = self._items_by_input.get(in_path)
+            if item is None and in_path:
+                # Фоллбэк: если по какой-то причине элемент не добавился на file_start — добавим его сейчас
+                item = QListWidgetItem(Path(in_path).name)
+                item.setData(Qt.UserRole, {"input_path": in_path, "output_path": out_path})
+                self.file_list.addItem(item)
+                self._items_by_input[in_path] = item
             if item is not None:
                 label = f"{Path(in_path).name} → {Path(out_path).name if out_path else '(нет)'}"
                 item.setText(label)
                 data = item.data(Qt.UserRole) or {}
                 data["output_path"] = out_path
                 item.setData(Qt.UserRole, data)
+            # Подгружаем логи изображений из reports/images/<doc_id>.json
+            try:
+                reports_dir = Path(os.getenv("REPORTS_DIR", "reports"))
+                doc_id = None
+                # Попытаемся восстановить doc_id из пути отчёта PII (известен формат), иначе из исходника не получить напрямую
+                # Для простоты: сканируем reports/images по времени и берём последний созданный
+                images_dir = reports_dir / "images"
+                latest = None
+                if images_dir.exists():
+                    latest = max(images_dir.glob("*.json"), key=lambda p: p.stat().st_mtime, default=None)
+                if latest:
+                    log_text = latest.read_text(encoding="utf-8", errors="ignore")
+                    self._image_logs[in_path] = log_text
+                    # Если выбран именно этот элемент — отрисуем сразу
+                    current = self.file_list.currentItem()
+                    if current and (current.data(Qt.UserRole) or {}).get("input_path") == in_path:
+                        self._render_preview()
+            except Exception:
+                pass
         elif evt.get("event") == "error":
             self.status_lbl.setText(f"Ошибка: {evt.get('file')} — {evt.get('message')}")
             # ошибки не добавляем в список файлов, чтобы не ломать соответствие
@@ -290,7 +325,6 @@ class MainWindow(QWidget):
         # Список уже наполнен по мере обработки
 
     def _on_item_clicked(self, item):
-        from PySide6.QtCore import Qt
         r = item.data(Qt.UserRole) or {}
         self._show_result(r)
 
@@ -324,12 +358,67 @@ class MainWindow(QWidget):
         if getattr(self, 'mode_text_btn', None) and self.mode_text_btn.isChecked():
             self.src_view.setPlainText(getattr(self, '_last_src_text', ""))
             self.out_view.setPlainText(getattr(self, '_last_out_text', ""))
+            # Подсветка в текстовом режиме: выделяем строки с маркером пояснения
+            try:
+                self._apply_text_highlight()
+            except Exception:
+                self.out_view.setExtraSelections([])
         else:
             md = MarkdownIt()
             src_html = md.render(getattr(self, '_last_src_text', ""))
             out_html = md.render(getattr(self, '_last_out_text', ""))
+            # Подсветка в Markdown: оборачиваем маркер пояснения видимым стилем
+            try:
+                out_html = re.sub(
+                    r"Пояснение\s+к\s+изображению\s*:",
+                    '<span style="background-color:#fff3bf;padding:1px 3px;border-radius:2px;">Пояснение к изображению:</span>',
+                    out_html,
+                    flags=re.I,
+                )
+            except Exception:
+                pass
             self.src_view.setHtml(src_html)
             self.out_view.setHtml(out_html)
+            # В HTML-режиме дополнительные выделения не нужны
+            self.out_view.setExtraSelections([])
+        # Логи изображений: показываем JSON как текст
+        try:
+            current = self.file_list.currentItem()
+            inp = (current.data(Qt.UserRole) or {}).get("input_path") if current else None
+            log_text = self._image_logs.get(inp or "") or "(нет логов изображений)"
+            self.images_log_view.setPlainText(log_text)
+        except Exception:
+            self.images_log_view.setPlainText("(нет логов изображений)")
+
+    def _apply_text_highlight(self):
+        # Ищем в out_view все вхождения маркера и подсвечиваем фон
+        text = self.out_view.toPlainText()
+        if not text:
+            self.out_view.setExtraSelections([])
+            return
+        pattern = re.compile(r"Пояснение\s+к\s+изображению\s*:", re.I)
+        selections = []
+        for m in pattern.finditer(text):
+            sel = QTextEdit.ExtraSelection()
+            fmt = QTextCharFormat()
+            fmt.setBackground(QColor("#fff3bf"))
+            sel.format = fmt
+            cursor = self.out_view.textCursor()
+            cursor.setPosition(m.start())
+            cursor.setPosition(m.end(), QTextCursor.KeepAnchor)
+            sel.cursor = cursor
+            selections.append(sel)
+        self.out_view.setExtraSelections(selections)
+
+    def _open_reports(self):
+        # Открываем папку отчётов (REPORTS_DIR или по умолчанию ./reports)
+        base = os.getenv("REPORTS_DIR", "reports")
+        p = Path(base).absolute()
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
     def _open_prompt_dialog(self):
         # Определяем текущий эффективный промпт: пользовательский или из конфига

@@ -13,7 +13,7 @@ from .anonymize import anonymize_text
 ## dedup отключён
 from .markdown import render_front_matter, render_markdown, FrontMatter, format_markdown
 from .llm import postprocess_with_llm
-from .images import enrich_text_with_image_explanations
+from .images import enrich_text_with_image_explanations, enrich_text_with_image_explanations_report
 from .metadata import extract_metadata, metadata_section_ru
 from .anonymize import detect_residual_pii
 
@@ -100,10 +100,28 @@ def process_directory(
                 if hasattr(control, "wait_if_paused"):
                     control.wait_if_paused()
             try:
-                text = enrich_text_with_image_explanations(text, path, cfg)
+                # Версия с отчётом — для записи подробностей и визуализации в UI
+                if progress_cb:
+                    progress_cb({"event": "images", "file": str(path), "substage": "discover"})
+                text, images_report = enrich_text_with_image_explanations_report(text, path, cfg)
+                if progress_cb:
+                    # Передадим основные факты: сколько изображений и вставок
+                    progress_cb({
+                        "event": "images",
+                        "file": str(path),
+                        "substage": "result",
+                        "images": len(images_report.get("images") or []),
+                        "calls": len(images_report.get("calls") or []),
+                        "insertions": len(images_report.get("insertions") or []),
+                    })
+                # Сохраняем вариант исходного текста с внедрёнными пояснениями к изображениям
+                text_with_image_explanations = text
+                # Пишем отчёт в reports/images/<doc_id>.json после вычисления doc_id
+                _images_report_buffer = images_report
             except Exception as e:
                 if progress_cb:
                     progress_cb({"event": "warn", "file": str(path), "stage": "images", "message": str(e)})
+
         # Обезличивание (проход 1)
         if progress_cb:
             progress_cb({"event": "stage", "file": str(path), "stage": "anonymize_pass1"})
@@ -191,6 +209,35 @@ def process_directory(
             # Имя выходного файла формируем из имени исходника с расширением .md
             out_file = output_dir / f"{path.stem}.md"
             write_markdown_file(out_file, out_text)
+            # Дополнительно сохраняем вариант исходного текста с пояснениями к изображениям в *_srs.md
+            try:
+                srs_text = locals().get("text_with_image_explanations") or ""
+                if not srs_text:
+                    # Если по какой-то причине переменная отсутствует (например, модуль изображений отключён)
+                    # сохраняем текущий текст до преобразования в markdown как наилучшее приближение
+                    srs_text = text
+                out_file_srs = output_dir / f"{path.stem}_srs.md"
+                write_markdown_file(out_file_srs, srs_text)
+            except Exception as e:
+                if progress_cb:
+                    progress_cb({"event": "warn", "file": str(path), "stage": "write_srs", "message": str(e)})
+            # Запись отчёта по изображениям, если он был собран
+            try:
+                images_report = locals().get("_images_report_buffer")
+                if images_report:
+                    reports_dir = Path(cfg["io"].get("reports_dir", "reports"))
+                    (reports_dir / "images").mkdir(parents=True, exist_ok=True)
+                    (reports_dir / "images" / f"{doc_id}.json").write_text(__import__("json").dumps(images_report, ensure_ascii=False, indent=2), encoding="utf-8")
+                    if progress_cb:
+                        progress_cb({
+                            "event": "images",
+                            "file": str(path),
+                            "substage": "report_written",
+                            "report_path": str((reports_dir / "images" / f"{doc_id}.json").absolute()),
+                        })
+            except Exception as e:
+                if progress_cb:
+                    progress_cb({"event": "warn", "file": str(path), "stage": "write_images_report", "message": str(e)})
         else:
             out_file = None
 

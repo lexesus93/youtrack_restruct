@@ -25,6 +25,14 @@ def load_pipeline_config(path: Path) -> Dict[str, Any]:
         "enabled": True,
         # Модель vision для OpenRouter; может быть переопределена переменными окружения
         "vision_model": "qwen/qwen2.5-vl-72b-instruct:free",
+        # Ретраи при временных ошибках/пустых ответах
+        "retry_count": 2,
+        "retry_backoff_sec": 2.0,
+        # Фолбэк‑модели (по порядку), используются если основная вернула ошибку
+        "fallback_models": [
+            "qwen/qwen2.5-vl-7b-instruct:free",
+            "qwen/qwen3-235b-a22b:free",
+        ],
     })
     data.setdefault("validation", {})
     return data
