@@ -1,9 +1,0 @@
-Проект: ABC
-Тикет: ABC-1234
-Среда: prod
-Версия: v1.2.3
-Контакты: user@example.com, +7 (999) 123-45-67
-IP: 10.0.0.1
-
-Логи:
-2025-10-10 12:00:01 ERROR Service failed with code 500 at http://user:pass@internal.local/api
